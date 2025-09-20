@@ -1,3 +1,5 @@
 alias upquark='wget -fQ http://10.0.0.230:8080/quark.lua /home/quark.lua'
 
 upquark && quark
+
+wget -fQ http://10.0.0.230:8080/quarkDust.lua /home/quarkDust.lua && quarkDust
