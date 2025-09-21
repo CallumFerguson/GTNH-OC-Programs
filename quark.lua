@@ -85,7 +85,6 @@ local function handleTransposer(addr)
   end
 
   -- Ensure fluid types match (avoid mixing)
-  -- If the top has a named fluid, require bottom to either be same name or bottom name missing (rare).
   if top.name and bot and bot.name and top.name ~= bot.name then
     log("%s fluid mismatch: top=%s, bottom=%s; skipping.", tag, tostring(top.name), tostring(bot.name))
     return
@@ -103,8 +102,7 @@ local function handleTransposer(addr)
   end
 
   local moved = xfer(tp, sides.down, sides.up, need)
-  log("%s top=%d mB, target=%d mB, requested=%d mB",
-      tag, tAmt, target, need)
+  log("%s top=%d mB, target=%d mB, requested=%d mB", tag, tAmt, target, need)
 end
 
 ---------------------------------------------------------------------
@@ -130,7 +128,7 @@ runOnce()
 --   os.sleep(2)
 -- end
 
--- quark.lua  (dust multiplier with early-exit on first empty slot)
+-- quark.lua  (dust multiplier with two-pass read->move)
 
 local me = component.me_interface
 local db = component.database
@@ -143,9 +141,9 @@ local mainNetInterfaceTP = componentDiscoverLib.discoverProxy("69e81fc7-408f-468
 local outputDustChestTP  = componentDiscoverLib.discoverProxy("58b1c012-21f9-45cf-b35f-5382849e303f", "outputDustChestTP",  "transposer")
 
 -- Layout:
-local SRC_SIDE  = sides.top     -- outputDustChest is on TOP of outputDustChestTP
-local IF_SIDE   = sides.bottom  -- ME Interface is on BOTTOM of mainNetInterfaceTP
-local DST_SIDE  = sides.top     -- destination chest is on TOP of mainNetInterfaceTP
+local SRC_SIDE   = sides.top     -- outputDustChest is on TOP of outputDustChestTP
+local IF_SIDE    = sides.bottom  -- ME Interface is on BOTTOM of mainNetInterfaceTP
+local DST_SIDE   = sides.top     -- destination chest is on TOP of mainNetInterfaceTP
 local IFACE_SLOT = 1
 
 -- Helpers
@@ -175,33 +173,72 @@ local function pullFromInterface(toMove)
   return mainNetInterfaceTP.transferItem(IF_SIDE, DST_SIDE, n, IFACE_SLOT) or 0
 end
 
--- Main
+-- Main (Two-pass)
 local invSize = outputDustChestTP.getInventorySize(SRC_SIDE) or 27
 local grandTotal = 0
+
+-- PASS 1: Read/record all dusts (stop at first empty slot)
+print( ("PASS 1: scanning output chest; invSize=%d"):format(invSize) )
+local tasks = {}
+local scanned = 0
 
 for slot = 1, invSize do
   local st = outputDustChestTP.getStackInSlot(SRC_SIDE, slot)
 
-  -- EARLY EXIT: first empty slot means everything after is empty too
   if not (st and st.size and st.size > 0) then
+    print(("PASS 1: first empty at slot %d — stopping scan."):format(slot))
     break
   end
 
+  scanned = scanned + 1
   local want = wantFromStack(st)
   if want then
-    local req = math.min(64, (st.size or 0) * 8) -- < 1 stack requested total
+    local req = math.min(64, (st.size or 0) * 8) -- request up to 1 stack, moving 8×
+    print(("PASS 1: slot %d -> %s%s x%d (req %d)")
+      :format(
+        slot,
+        want.name,
+        want.damage and (":"..tostring(want.damage)) or "",
+        st.size or 0,
+        req
+      ))
+
     if req > 0 then
-      print(("Slot %d: %s%s x%d -> requesting %d")
-        :format(slot, want.name, want.damage and (":"..tostring(want.damage)) or "", st.size, req))
-
-      ifaceRequest(want, req)
-      local moved = pullFromInterface(req)
-      ifaceClear()
-
-      grandTotal = grandTotal + moved
-      print(("  moved %d item(s) to destination chest"):format(moved))
+      table.insert(tasks, {
+        slot = slot,
+        want = want,
+        size = st.size or 0,
+        req  = req
+      })
+    else
+      print(("PASS 1: slot %d request is 0; skipping"):format(slot))
     end
+  else
+    print(("PASS 1: slot %d has no valid 'want' (missing name)"):format(slot))
   end
+end
+
+print(("PASS 1: scanned=%d, queued tasks=%d"):format(scanned, #tasks))
+
+-- PASS 2: Perform the moves
+for _, t in ipairs(tasks) do
+  local want = t.want
+  local req  = t.req
+  print(("Slot %d: %s%s x%d -> requesting %d")
+    :format(
+      t.slot,
+      want.name,
+      want.damage and (":"..tostring(want.damage)) or "",
+      t.size,
+      req
+    ))
+
+  ifaceRequest(want, req)
+  local moved = pullFromInterface(req)
+  ifaceClear()
+
+  grandTotal = grandTotal + moved
+  print(("  moved %d item(s) to destination chest"):format(moved))
 end
 
 ifaceClear()
