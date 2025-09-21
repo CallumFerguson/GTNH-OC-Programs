@@ -4,9 +4,9 @@ local sides = require("sides")
 local componentDiscoverLib = require("lib.component-discover-lib")
 
 -- CONFIG
-local redstoneIO = componentDiscoverLib.discoverProxy("940e9d78-4fc4-49db-98cf-f0740d2dcada", "redstoneIO", "redstone")
+local redstoneIO = componentDiscoverLib.discoverProxy("f1d576e0-5fc0-4db9-adf0-1049cb7a59cc", "redstoneIO", "redstone")
 local WATCH_SIDE = sides.top
-local SCRIPT_PATH = "/home/getDust.lua"
+local SCRIPT_PATH = "/home/quark.lua"
 
 assert(redstoneIO and redstoneIO.address, "Redstone I/O not found (check UUID / wiring).")
 

@@ -1,4 +1,3 @@
--- scale-tanks.lua
 -- For OpenComputers in GT: New Horizons (MC 1.7.10)
 -- Finds every transposer, and if there's a tank on TOP and BOTTOM:
 --   Let top amount be t (mB). Target is t * MULTIPLIER (default 1000).
@@ -124,16 +123,6 @@ end
 -- Execute a single pass
 runOnce()
 
--- If you want it to poll forever (e.g., every 2s), uncomment below:
--- while true do
---   runOnce()
---   os.sleep(2)
--- end
-
----------------------------------------------------------------------
--- quark.lua  (dust multiplier with two-pass read->move)
----------------------------------------------------------------------
-
 local me = component.me_interface
 local db = component.database
 assert(me and db, "Need a Database Upgrade in the Adapter and the Adapter must touch an ME (Dual) Interface")
@@ -203,17 +192,39 @@ for slot = 1, invSize do
   end
 
   scanned = scanned + 1
+
+  -- Default multiplier and want derived from the slot itself
+  local multiplier = 8
   local want = wantFromStack(st)
+
+  -- Special case: miscutils:itemDustIodine:0
+  local isIodine = (st.name == "miscutils:itemDustIodine") and ((st.damage or 0) == 0)
+  if isIodine then
+    -- Request bartworks:gt.bwMetaGenerateddust:11012 instead, using ×9
+    multiplier = 9
+    want = { name = "bartworks:gt.bwMetaGenerateddust", damage = 11012 }
+
+    -- Move the iodine dusts themselves to the NORTH side chest immediately
+    local toMove = st.size or 0
+    if toMove > 0 then
+      local movedNorth = outputDustChestTP.transferItem(SRC_SIDE, sides.north, toMove, slot) or 0
+      print(("PASS 1: iodine at slot %d -> moved %d to NORTH chest"):format(slot, movedNorth))
+    else
+      print(("PASS 1: iodine at slot %d but size=0; nothing moved to NORTH"):format(slot))
+    end
+  end
+
   if want then
-    -- moving 8×; request up to one stack (64)
-    local req = math.min(64, (st.size or 0) * 8)
-    print(("PASS 1: slot %d -> %s%s x%d (req %d)")
+    -- request up to one stack (64)
+    local req = math.min(64, (st.size or 0) * multiplier)
+    print(("PASS 1: slot %d -> %s%s x%d (req %d)%s")
       :format(
         slot,
         want.name,
         want.damage and (":" .. tostring(want.damage)) or "",
         st.size or 0,
-        req
+        req,
+        isIodine and " [SPECIAL iodine→bartworks ×9]" or ""
       ))
 
     if req > 0 then
