@@ -5,7 +5,7 @@
 --   Moves (target - t) from BOTTOM -> TOP, clamped to TOP capacity.
 -- Assumptions: bottom tank is "always full" and same fluid as top (we verify name).
 
-print "starting..."
+print("starting...")
 
 local component = require("component")
 local sides     = require("sides")
@@ -30,6 +30,7 @@ end
 local function firstTank(tp, side)
   local ok, tanks = pcall(tp.getFluidInTank, side)
   if not ok or type(tanks) ~= "table" then return nil end
+
   local t = tanks[1]
   if type(t) == "table" and (t.capacity or t.amount or t.name) then
     -- Normalize numeric fields
@@ -41,13 +42,13 @@ local function firstTank(tp, side)
 end
 
 -- Quick check that a "tank" actually exists on a side.
--- Some drivers return { {capacity=0, amount=0} } for empty/nonexistent; we require capacity>0.
+-- Some drivers return { {capacity=0, amount=0} } for empty/nonexistent; we require capacity > 0.
 local function hasTank(tp, side)
   local t = firstTank(tp, side)
   return t and t.capacity and t.capacity > 0
 end
 
--- Transfer fluid from one side to another, clamped to >=0
+-- Transfer fluid from one side to another, clamped to >= 0
 local function xfer(tp, fromSide, toSide, amount)
   if amount <= 0 then return 0 end
   local ok, moved = pcall(tp.transferFluid, fromSide, toSide, amount)
@@ -103,6 +104,7 @@ local function handleTransposer(addr)
 
   local moved = xfer(tp, sides.down, sides.up, need)
   log("%s top=%d mB, target=%d mB, requested=%d mB", tag, tAmt, target, need)
+  -- (Optional detail retained: 'moved' is computed but only 'requested' is logged, preserving original behavior.)
 end
 
 ---------------------------------------------------------------------
@@ -128,7 +130,9 @@ runOnce()
 --   os.sleep(2)
 -- end
 
+---------------------------------------------------------------------
 -- quark.lua  (dust multiplier with two-pass read->move)
+---------------------------------------------------------------------
 
 local me = component.me_interface
 local db = component.database
@@ -137,8 +141,12 @@ assert(me and db, "Need a Database Upgrade in the Adapter and the Adapter must t
 local componentDiscoverLib = require("lib.component-discover-lib")
 
 -- Proxies
-local mainNetInterfaceTP = componentDiscoverLib.discoverProxy("69e81fc7-408f-4681-ade3-d0be031b4c94", "mainNetInterfaceTP", "transposer")
-local outputDustChestTP  = componentDiscoverLib.discoverProxy("58b1c012-21f9-45cf-b35f-5382849e303f", "outputDustChestTP",  "transposer")
+local mainNetInterfaceTP = componentDiscoverLib.discoverProxy(
+  "69e81fc7-408f-4681-ade3-d0be031b4c94", "mainNetInterfaceTP", "transposer"
+)
+local outputDustChestTP = componentDiscoverLib.discoverProxy(
+  "58b1c012-21f9-45cf-b35f-5382849e303f", "outputDustChestTP", "transposer"
+)
 
 -- Layout:
 local SRC_SIDE   = sides.top     -- outputDustChest is on TOP of outputDustChestTP
@@ -146,7 +154,9 @@ local IF_SIDE    = sides.bottom  -- ME Interface is on BOTTOM of mainNetInterfac
 local DST_SIDE   = sides.top     -- destination chest is on TOP of mainNetInterfaceTP
 local IFACE_SLOT = 1
 
--- Helpers
+---------------------------------------------------------------------
+-- AE2 helpers
+---------------------------------------------------------------------
 local function wantFromStack(st)
   if not st or not st.name then return nil end
   local w = { name = st.name }
@@ -173,13 +183,15 @@ local function pullFromInterface(toMove)
   return mainNetInterfaceTP.transferItem(IF_SIDE, DST_SIDE, n, IFACE_SLOT) or 0
 end
 
+---------------------------------------------------------------------
 -- Main (Two-pass)
-local invSize = outputDustChestTP.getInventorySize(SRC_SIDE) or 27
+---------------------------------------------------------------------
+local invSize    = outputDustChestTP.getInventorySize(SRC_SIDE) or 27
 local grandTotal = 0
 
 -- PASS 1: Read/record all dusts (stop at first empty slot)
-print( ("PASS 1: scanning output chest; invSize=%d"):format(invSize) )
-local tasks = {}
+print(("PASS 1: scanning output chest; invSize=%d"):format(invSize))
+local tasks   = {}
 local scanned = 0
 
 for slot = 1, invSize do
@@ -193,12 +205,13 @@ for slot = 1, invSize do
   scanned = scanned + 1
   local want = wantFromStack(st)
   if want then
-    local req = math.min(64, (st.size or 0) * 8) -- request up to 1 stack, moving 8×
+    -- moving 8×; request up to one stack (64)
+    local req = math.min(64, (st.size or 0) * 8)
     print(("PASS 1: slot %d -> %s%s x%d (req %d)")
       :format(
         slot,
         want.name,
-        want.damage and (":"..tostring(want.damage)) or "",
+        want.damage and (":" .. tostring(want.damage)) or "",
         st.size or 0,
         req
       ))
@@ -224,11 +237,12 @@ print(("PASS 1: scanned=%d, queued tasks=%d"):format(scanned, #tasks))
 for _, t in ipairs(tasks) do
   local want = t.want
   local req  = t.req
+
   print(("Slot %d: %s%s x%d -> requesting %d")
     :format(
       t.slot,
       want.name,
-      want.damage and (":"..tostring(want.damage)) or "",
+      want.damage and (":" .. tostring(want.damage)) or "",
       t.size,
       req
     ))
