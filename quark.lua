@@ -136,6 +136,10 @@ local mainNetInterfaceTP = componentDiscoverLib.discoverProxy(
 local outputDustChestTP = componentDiscoverLib.discoverProxy(
   "58b1c012-21f9-45cf-b35f-5382849e303f", "outputDustChestTP", "transposer"
 )
+-- Curium fluid transposer (bottom -> top on PASS 1 when curium found)
+local curiumFluidTP = componentDiscoverLib.discoverProxy(
+  "7c6ec899-544e-4a13-bd20-7526efebed52", "curiumFluidTP", "transposer"
+)
 
 -- Layout:
 local SRC_SIDE   = sides.top     -- outputDustChest is on TOP of outputDustChestTP
@@ -193,18 +197,47 @@ for slot = 1, invSize do
 
   scanned = scanned + 1
 
-  -- Default multiplier and want derived from the slot itself
+  -- Defaults
   local multiplier = 8
   local want = wantFromStack(st)
+  local queueThis = true
 
-  -- Special case: miscutils:itemDustIodine:0
+  -- Special case: Iodine dust -> request BartWorks 11012 ×9, move iodine items north
   local isIodine = (st.name == "miscutils:itemDustIodine") and ((st.damage or 0) == 0)
-  if isIodine then
-    -- Request bartworks:gt.bwMetaGenerateddust:11012 instead, using ×9
+
+  -- Special case: Curium dust -> move items north, move fluid on curiumFluidTP (bottom->top),
+  -- skip PASS 2 (do not queue a task)
+  local isCurium = (st.name == "miscutils:itemDustCurium") and ((st.damage or 0) == 0)
+
+  if isCurium then
+    -- Move curium items to NORTH
+    local qty = st.size or 0
+    local movedNorth = outputDustChestTP.transferItem(SRC_SIDE, sides.north, qty, slot) or 0
+    print(("PASS 1: curium at slot %d -> moved %d to NORTH chest"):format(slot, movedNorth))
+
+    -- Move fluid: 9 * 144 mB per curium
+    local PER_DUST_MB = 9 * 144
+    local fluidReq = (qty or 0) * PER_DUST_MB
+
+    if curiumFluidTP and hasTank(curiumFluidTP, sides.down) and hasTank(curiumFluidTP, sides.up) then
+      local top = firstTank(curiumFluidTP, sides.up) or { amount = 0, capacity = 0 }
+      local capAvail = math.max(0, (top.capacity or 0) - (top.amount or 0))
+      local toMove = math.min(fluidReq, capAvail)
+      local moved = xfer(curiumFluidTP, sides.down, sides.up, toMove)
+      print(("PASS 1: curium fluid move on [7c6ec899] requested=%d mB, moved=%d mB (capAvail=%d)")
+        :format(toMove, moved, capAvail))
+    else
+      print("PASS 1: curium fluid transposer not ready (missing tanks) — skipped fluid move")
+    end
+
+    -- Do NOT queue a PASS 2 task for curium
+    queueThis = false
+  elseif isIodine then
+    -- Override want + multiplier
     multiplier = 9
     want = { name = "bartworks:gt.bwMetaGenerateddust", damage = 11012 }
 
-    -- Move the iodine dusts themselves to the NORTH side chest immediately
+    -- Move iodine items to NORTH immediately
     local toMove = st.size or 0
     if toMove > 0 then
       local movedNorth = outputDustChestTP.transferItem(SRC_SIDE, sides.north, toMove, slot) or 0
@@ -214,17 +247,17 @@ for slot = 1, invSize do
     end
   end
 
-  if want then
-    -- request up to one stack (64)
+  if want and queueThis then
     local req = math.min(64, (st.size or 0) * multiplier)
-    print(("PASS 1: slot %d -> %s%s x%d (req %d)%s")
+    print(("PASS 1: slot %d -> %s%s x%d (req %d)%s%s")
       :format(
         slot,
         want.name,
         want.damage and (":" .. tostring(want.damage)) or "",
         st.size or 0,
         req,
-        isIodine and " [SPECIAL iodine→bartworks ×9]" or ""
+        isIodine and " [SPECIAL iodine→bartworks ×9]" or "",
+        isCurium and " [SPECIAL curium handled in PASS 1 only]" or ""
       ))
 
     if req > 0 then
@@ -237,6 +270,8 @@ for slot = 1, invSize do
     else
       print(("PASS 1: slot %d request is 0; skipping"):format(slot))
     end
+  elseif isCurium then
+    print(("PASS 1: slot %d curium — no PASS 2 task queued"):format(slot))
   else
     print(("PASS 1: slot %d has no valid 'want' (missing name)"):format(slot))
   end
@@ -244,7 +279,7 @@ end
 
 print(("PASS 1: scanned=%d, queued tasks=%d"):format(scanned, #tasks))
 
--- PASS 2: Perform the moves
+-- PASS 2: Perform the moves (note: curium slots were not queued)
 for _, t in ipairs(tasks) do
   local want = t.want
   local req  = t.req
