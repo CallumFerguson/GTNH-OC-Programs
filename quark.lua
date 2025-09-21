@@ -279,6 +279,17 @@ end
 
 print(("PASS 1: scanned=%d, queued tasks=%d"):format(scanned, #tasks))
 
+local UUID = "25c8462f-1235-4057-9577-cbd172331962"
+
+-- Find the exact Redstone I/O by GUID (falls back to generic "redstone")
+local rs = componentDiscoverLib.discoverProxy(UUID, "redstoneIO2", "redstone")
+assert(rs and rs.address, "Redstone I/O not found (check UUID / wiring).")
+
+-- 0.25 s pulse
+rs.setOutput(sides.top, 15)
+os.sleep(0.25)
+rs.setOutput(sides.top, 0)
+
 -- PASS 2: Perform the moves (note: curium slots were not queued)
 for _, t in ipairs(tasks) do
   local want = t.want
